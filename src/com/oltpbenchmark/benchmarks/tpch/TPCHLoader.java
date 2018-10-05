@@ -45,6 +45,8 @@ import org.apache.log4j.Logger;
 import com.oltpbenchmark.api.Loader;
 import com.oltpbenchmark.api.Loader.LoaderThread;
 
+import javassist.bytecode.stackmap.BasicBlock.Catch;
+
 public class TPCHLoader extends Loader<TPCHBenchmark> {
     private static final Logger LOG = Logger.getLogger(TPCHLoader.class);
     private final static int configCommitCount = 10000; // commit every n records
@@ -56,14 +58,14 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
     private static PreparedStatement partsuppPrepStmt;
     private static PreparedStatement regionPrepStmt;
     private static PreparedStatement supplierPrepStmt;
-//    private static final int numCustomerCols = 8;
-//    private static final int numLineItemCols = 16;
-//    private static final int numNationCols = 4;
-//    private static final int numOrdersCols = 9;
-//    private static final int numPartCols = 9;
-//    private static final int numPartSuppCols = 5;
-//    private static final int numRegionCols = 3;
-//    private static final int numSupplierCols = 7;
+    private static final int numCustomerCols = 8;
+    private static final int numLineItemCols = 16;
+    private static final int numNationCols = 4;
+    private static final int numOrdersCols = 9;
+    private static final int numPartCols = 9;
+    private static final int numPartSuppCols = 5;
+    private static final int numRegionCols = 3;
+    private static final int numSupplierCols = 7;
 
     private static Date now;
     private static long lastTimeMS;
@@ -215,25 +217,25 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
 
         } catch (SQLException se) {
             LOG.debug(se.getMessage());
-            conn.rollback();
+           // conn.rollback();
 
         } catch (Exception e) {
             e.printStackTrace();
-            conn.rollback();
+           // conn.rollback();
         } // end try
 
         loadHelper();
-        conn.commit();
+       // conn.commit();
     }
 
     static void truncateTable(String strTable) throws SQLException {
         LOG.debug("Truncating '" + strTable + "' ...");
         try {
             conn.createStatement().execute("DELETE FROM " + strTable);
-            conn.commit();
+        //    conn.commit();
         } catch (SQLException se) {
             LOG.debug(se.getMessage());
-            conn.rollback();
+           // conn.rollback();
         }
     }
 
@@ -368,11 +370,11 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                 this.conn = DriverManager.getConnection(workConf.getDBConnection(),
                         workConf.getDBUsername(),
                         workConf.getDBPassword());
-                this.conn.setAutoCommit(false);
+             //   this.conn.setAutoCommit(false);
 
                 try {
                     now = new java.util.Date();
-                    LOG.debug("\nStart " + tableName + " load @ " + now + "...");
+                    LOG.info("-> \nStart " + tableName + " load @ " + now + "...");
                     String format = getFileFormat();
                     File file = new File(workConf.getDataDir()
                                          , tableName.toLowerCase() + "." 
@@ -386,11 +388,15 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                     int group = getFormatGroup(format);
                     Matcher matcher;
                     while ((line = br.readLine()) != null) {
+                    	//if (this.tableName.equals("LineItem"))
+                    	//	System.out.println(line +" Fields C: "+types.length);
+                    	
                         matcher = pattern.matcher(line);
                         try {
                             for (int i = 0; i < types.length; ++i) {
                                 matcher.find();
                                 String field = matcher.group(group);
+                 //               System.out.println("--> t:"+this.tableName+ " i: "+i+" v: "+field);
 
                                 // Remove quotes that may surround a field.
                                 if (field.charAt(0) == '\"') {
@@ -423,9 +429,11 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                                         Pattern usaFmt = Pattern.compile("^\\s*(\\d{2})/(\\d{2})/(\\d{4})\\s*$");
                                         Matcher usaMatcher = usaFmt.matcher(field);
                                         // dd.mm.yyyy
+                                        
                                         Pattern eurFmt = Pattern.compile("^\\s*(\\d{2})\\.(\\d{2})\\.(\\d{4})\\s*$");
                                         Matcher eurMatcher = eurFmt.matcher(field);
-
+                                        
+                        //                System.out.println("Indetificou datas!");
                                         java.sql.Date fieldAsDate = null;
                                         if (isoMatcher.find()) {
                                             fieldAsDate = new java.sql.Date(
@@ -456,21 +464,35 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                                                 + field + "\" in CSV file: "
                                                 + file.getAbsolutePath());
                                         }
-                                        prepStmt.setDate(i+1, fieldAsDate, null);
+                                        try {
+                                        prepStmt.setString(i+1, field);
+                                        } catch (Exception e){
+                                        	System.out.println("Erro de data! -" + fieldAsDate);
+                                        	e.printStackTrace();
+       
+                                        }
+                          //              System.out.println("Indetificou datas e fechou!");
                                         break;
-                                    default:
+                                    default:{
+                                    	System.out.println("--> Merda :(");
                                         throw new RuntimeException("Unrecognized type for prepared statement");
+                                    }
                                 }
                             }
                         } catch(IllegalStateException e) {
+                        	System.out.println("--> Merda :'( ");
                             // This happens if there wasn't a match against the regex.
                             LOG.error("Invalid CSV file: " + file.getAbsolutePath());
                         }
-
+                        
                         prepStmt.addBatch();
                         ++recordsRead;
 
                         if ((recordsRead % configCommitCount) == 0) {
+                        	System.out.println("Flushing " + this.tableName + " tuples");
+                        	if (this.tableName.equals("LineItem")) {
+                        		prepStmt.toString();
+                        	}
                             long currTime = new java.util.Date().getTime();
                             String elapsedStr = "  Elapsed Time(ms): "
                                 + ((currTime - lastTimeMS) / 1000.000)
@@ -480,7 +502,7 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                             lastTimeMS = currTime;
                             prepStmt.executeBatch();
                             prepStmt.clearBatch();
-                            conn.commit();
+                     //       conn.commit();
                         }
                     }
 
@@ -492,20 +514,20 @@ public class TPCHLoader extends Loader<TPCHBenchmark> {
                             + "  Writing record " + recordsRead);
                     lastTimeMS = currTime;
                     prepStmt.executeBatch();
-                    conn.commit();
+                //    conn.commit();
                     now = new java.util.Date();
                     LOG.debug("End " + tableName + " Load @ " + now);
 
                 } catch (SQLException se) {
                     LOG.debug(se.getMessage());
                     se = se.getNextException();
-                    LOG.debug(se.getMessage());
-                    conn.rollback();
+                  if (se != null)  LOG.debug(se.getMessage());
+                   // conn.rollback();
                 } catch (FileNotFoundException e) {
                     e.printStackTrace();
                 }  catch (Exception e) {
                     e.printStackTrace();
-                    conn.rollback();
+                  //  conn.rollback();
                 } finally {
                     if (br != null){
                         try {
